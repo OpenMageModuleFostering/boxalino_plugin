@@ -3,11 +3,11 @@
     "type": "magento-module",
     "license": "boxalino-Plugin",
     "homepage": "",
-    "description": "This extension enables a powerful search, personalization features and recommendations in Magento Online-Shops",
+    "description": "This extension connects your magento shop to the boxalino personalisation and testing engine.",
     "authors": [
     {
-        "name": "Marcel Zenger",
-        "email": "marcel.zenger@boxalino.com"
+        "name": "Szymon Nosal",
+        "email": "szymon.nosal@boxalino.com"
     }
 ],
     "suggest": {
