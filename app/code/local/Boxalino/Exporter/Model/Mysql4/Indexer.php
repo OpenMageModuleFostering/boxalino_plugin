@@ -1,7 +1,5 @@
 <?php
 
-//ini_set('memory_limit', '-1');
-
 abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_Mysql4_Abstract
 {
     /** @var array Configuration for each Store View */
@@ -33,8 +31,6 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
 
     protected $_attributesValuesByName = array();
 
-    protected $_tmp = array();
-
     protected $_files = array();
 
     protected $_count = 0;
@@ -51,19 +47,16 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
     protected $_helperExporter = null;
     protected $_helperSearch = null;
 
-    private $_parentId = null;
-    private $_simpleIds = null;
-    private $_isLoad = false;
-    private $logger = null;
+    protected $_entityIds = null;
 
     /**
-     * @description Start of apocalypse
+     * @description Start of reindex
      */
     public function reindexAll()
     {
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Indexer init'));
+        self::logMem('Indexer init');
         $this->_websiteExport();
-        $this->_closeExport();
+        $this->_helperExporter->delTree($this->_dir);
         return $this;
     }
 
@@ -74,12 +67,12 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
     protected function _websiteExport()
     {
         $this->_helperExporter = Mage::helper('boxalinoexporter');
-        $this->_helperSearch = Mage::helper("Boxalino_CemSearch");
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Helpers init'));
+        $this->_helperSearch = Mage::helper('boxalinoexporter');
+        self::logMem('Helpers init');
         foreach (Mage::app()->getWebsites() as $website) {
 
-            $this->delTree($this->_dir);
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'After delTree'));
+            $this->_helperExporter->delTree($this->_dir);
+            self::logMem('After delTree');
 
             if (!$this->_isEnabled()) {
                 continue;
@@ -87,27 +80,24 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
 
             $data = $this->_storeExport($website);
 
-//            if ($this->_getIndexType() == 'delta' && count($data['products']) == 0 && count($data['customers']) == 0 && count($data['transactions']) == 0) {
-//                continue;
-//            }
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'something with attributes - before'));
+            self::logMem('something with attributes - before');
 
-            foreach($this->_listOfAttributes as $k => $attr){
-                if(
+            foreach ($this->_listOfAttributes as $k => $attr) {
+                if (
                     !isset($this->_attributesValuesByName[$attr]) ||
                     (isset($this->_attrProdCount[$attr]) &&
-                    $this->_attrProdCount[$attr])
-                ){
+                        $this->_attrProdCount[$attr])
+                ) {
                     continue;
-                } else{
+                } else {
                     unset($this->_attributesValuesByName[$attr]);
                     unset($this->_listOfAttributes[$k]);
                 }
             }
 
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'something with attributes - after'));
+            self::logMem('something with attributes - after');
             $file = $this->prepareFiles($website, $data['categories'], $data['tags']);
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Push files'));
+            self::logMem('Push files');
 
             $this->pushXML($file);
             $this->pushZip($file);
@@ -117,7 +107,6 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
             $this->_transformedProducts = array();
             $this->_categoryParent = array();
             $this->_availableLanguages = array();
-            $this->_tmp = array();
             $this->_attrProdCount = array();
             $this->_count = 0;
 
@@ -133,24 +122,22 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
     {
         $products = array();
         $categories = array();
-//        $customers = array();
         $tags = array();
-//        $transactions = array();
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Preparing data for website start'));
+        self::logMem('Preparing data for website start');
         foreach ($website->getGroups() as $group) {
 
             $this->group = $group;
 
             foreach ($group->getStores() as $store) {
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Start store:'.$store->getId()));
+                self::logMem('Start store:' . $store->getId());
                 $this->_prepareStoreConfig($store->getId());
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Configuration for store loaded'));
+                self::logMem('Configuration for store loaded');
                 if ($this->_isEnabled()) {
                     $categories = $this->_exportCategories();
                     $tags = $this->_exportTags();
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Without available languages'));
+                    self::logMem('Without available languages');
                     $this->_availableLanguages[] = $this->_storeConfig['language'];
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'With available languages'));
+                    self::logMem('With available languages');
 
                 }
             }
@@ -158,13 +145,12 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
             if ($this->_isEnabled()) {
                 $this->_exportCustomers();
                 $this->_exportTransactions();
-                $products = $this->_exportProducts();
+                $this->_exportProducts();
             }
 
         }
 
         return array(
-            'products' => $products,
             'categories' => $categories,
             'tags' => $tags,
         );
@@ -196,11 +182,21 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
      */
     protected function _mergeAllAttributes()
     {
-        $this->_listOfAttributes = $this->_helperExporter->defaultAttributes();
+        $this->_listOfAttributes = array(
+            'entity_id',
+            'name',
+            'description',
+            'short_description',
+            'sku',
+            'price',
+            'special_price',
+            'visibility',
+            'category_ids',
+        );
 
         $attributes = array();
 
-        foreach(Mage::getResourceModel('catalog/product_attribute_collection')->getItems() as $at){
+        foreach (Mage::getResourceModel('catalog/product_attribute_collection')->getItems() as $at) {
             $attributes[] = $at->getAttributeCode();
         }
 
@@ -208,11 +204,11 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
             $fields = explode(',', $this->_storeConfig['additional_attributes']);
             foreach ($fields as $field) {
 
-                if(!in_array($field, $attributes)){
-                    Mage::throwException("Attribute \"$field\" not exist!" );
+                if (!in_array($field, $attributes)) {
+                    Mage::throwException("Attribute \"$field\" not exist!");
                 }
 
-                if($field != null && strlen($field) > 0){
+                if ($field != null && strlen($field) > 0) {
                     $this->_listOfAttributes[] = $field;
                 }
 
@@ -234,7 +230,7 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
                 $options = Mage::getModel('eav/config')->getAttribute('catalog_product', $attribute)->setStoreId($this->_storeId)->getSource()->getAllOptions();
                 foreach ($options as $option) {
                     if (!empty($option['value'])) {
-                        $this->_attributesValues[$this->_storeId][$attribute][$option['value']] = $this->escapeString($option['label']);
+                        $this->_attributesValues[$this->_storeId][$attribute][$option['value']] = $this->_helperSearch->escapeString($option['label']);
 
                         $value = intval($option['value']);
                         $name = 'value_' . $this->_storeConfig['language'];
@@ -243,15 +239,15 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
 
                             if (isset($this->_attributesValuesByName[$attribute][$value])) {
                                 $this->_attributesValuesByName[$attribute][$value][$name] = /*strtolower*/
-                                    $this->escapeString($option['label']);
+                                    $this->_helperSearch->escapeString($option['label']);
                             } else {
                                 $this->_attributesValuesByName[$attribute][$value] = array($attribute . '_id' => $value, $name => /*strtolower*/
-                                    $this->escapeString($option['label']));
+                                    $this->_helperSearch->escapeString($option['label']));
                             }
 
                         } else {
                             $this->_attributesValuesByName[$attribute] = array($value => array($attribute . '_id' => $value, $name => /*strtolower*/
-                                $this->escapeString($option['label'])));
+                                $this->_helperSearch->escapeString($option['label'])));
                         }
 
                     }
@@ -270,7 +266,7 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
     {
         if (isset($this->_storeConfig['enabled']) && $this->_storeConfig['enabled']) {
             return true;
-        } else if(!isset($this->_storeConfig['enabled']) && Mage::getStoreConfig('Boxalino_General/general/enabled')){
+        } else if (!isset($this->_storeConfig['enabled']) && Mage::getStoreConfig('Boxalino_General/general/enabled')) {
             return true;
         }
 
@@ -279,14 +275,14 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
 
     /**
      * @description Preparing categories to export
-     * @return array Cateroies
+     * @return array Categories
      */
     protected function _exportCategories()
     {
         if ($this->_storeConfig['export_categories']) {
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Categories are not loaded'));
+            self::logMem('Categories are not loaded');
             $categories = $this->_getCategories();
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Categories are loaded'));
+            self::logMem('Categories are loaded');
             foreach ($categories as $category) {
 
                 if ($category->getParentId() == null) {
@@ -294,26 +290,31 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
                 }
 
                 if (isset($this->_transformedCategories[$category->getId()])) {
-                    $this->_transformedCategories[$category->getId()]['value_' . $this->_storeConfig['language']] = $this->escapeString($category->getName());
+                    $this->_transformedCategories[$category->getId()]['value_' . $this->_storeConfig['language']] = $this->_helperSearch->escapeString($category->getName());
                 } else {
                     $parentId = null;
                     if ($category->getParentId() != 0) {
                         $parentId = $category->getParentId();
                     }
-                    $this->_transformedCategories[$category->getId()] = array('category_id' => $category->getId(), 'parent_id' => $parentId, 'value_' . $this->_storeConfig['language'] => $this->escapeString($category->getName()));
+                    $this->_transformedCategories[$category->getId()] = array('category_id' => $category->getId(), 'parent_id' => $parentId, 'value_' . $this->_storeConfig['language'] => $this->_helperSearch->escapeString($category->getName()));
                 }
             }
-            $categories = null;;
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Categories are returned for data saving'));
+            $categories = null;
+            self::logMem('Categories are returned for data saving');
             return $this->_transformedCategories;
         }
-
-
         return null;
-
     }
 
-    abstract protected function _getCategories();
+    /**
+     * @description Get list of all categories
+     * @return object All categories for Store
+     */
+    protected function _getCategories()
+    {
+        $categories = Mage::getModel('catalog/category')->setStoreId($this->_storeId)->getCollection()->addAttributeToSelect('*');
+        return $categories;
+    }
 
     /**
      * @description Preparing tags to export
@@ -324,9 +325,9 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
     {
 
         if ($this->_storeConfig['export_tags']) {
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Tags are not loaded'));
+            self::logMem('Tags are not loaded');
             $tags = $this->_helperExporter->getAllTags();
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Tags are loaded'));
+            self::logMem('Tags are loaded');
 
             foreach ($tags as $id => $tag) {
                 if (isset($this->_transformedTags[$id])) {
@@ -337,7 +338,7 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
             }
 
             $tags = null;
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Tags are returned for data saving'));
+            self::logMem('Tags are returned for data saving');
             return $this->_transformedTags;
         }
 
@@ -346,53 +347,48 @@ abstract class Boxalino_Exporter_Model_Mysql4_Indexer extends Mage_Core_Model_My
 
     /**
      * @description Preparing products to export
-     * @return array Products
+     * @return void
      */
     protected function _exportProducts()
     {
-
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - start of export'));
+        self::logMem('Products - start of export');
         $attrs = $this->_listOfAttributes;
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get info about attributes - before'));
-        $query = "
-SELECT `main_table`.`attribute_id`, `main_table`.`entity_type_id`, `main_table`.`attribute_code`, `main_table`.`attribute_model`, `main_table`.`backend_model`, `main_table`.`backend_type`, `main_table`.`backend_table`, `main_table`.`frontend_input`, `main_table`.`source_model`, `additional_table`.`is_global`, `additional_table`.`is_html_allowed_on_front`, `additional_table`.`is_wysiwyg_enabled` FROM `eav_attribute` AS `main_table`
- INNER JOIN `catalog_eav_attribute` AS `additional_table` ON additional_table.attribute_id = main_table.attribute_id WHERE (main_table.entity_type_id = 4) AND (attribute_code IN('" .
-            implode('\',\'', $this->_listOfAttributes) .
-            "'))
-";
+        self::logMem('Products - get info about attributes - before');
 
-        $config  = Mage::getConfig()->getResourceConnectionConfig("default_setup");
+        $db = $this->_getReadAdapter();
+        $select = $db->select()
+            ->from(
+                array('main_table' => 'eav_attribute'),
+                array(
+                    'attribute_id',
+                    'attribute_code',
+                    'backend_type',
+                )
+            )
+            ->joinInner(
+                array('additional_table' => 'catalog_eav_attribute'),
+                'additional_table.attribute_id = main_table.attribute_id'
+            )
+            ->where('main_table.entity_type_id = ?', $this->getEntityIdFor('catalog_product'))
+            ->where('main_table.attribute_code IN(?)', $attrs);
 
-        $dbinfo = array('host' => $config->host,
-            'user' => $config->username,
-            'pass' => $config->password,
-            'dbname' => $config->dbname
-        );
-        unset($config);
+        self::logMem('Products - connected to DB, built attribute info query');
 
-        $pdo = new PDO('mysql:host=' . $dbinfo['host'] .';dbname=' . $dbinfo['dbname'], $dbinfo['user'], $dbinfo['pass']);
-
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - connected to DB'));
-        $readConnection = $pdo->prepare($query);
-        $readConnection->execute();
-        $results = $readConnection->fetchAll();
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get info about attributes - after'));
-        $attrFDB = array();
         $attrsFromDb = array(
-            "int" => array(),
-            "varchar" => array(),
-            "text" => array(),
-            "decimal" => array(),
+            'int'     => array(),
+            'varchar' => array(),
+            'text'    => array(),
+            'decimal' => array(),
         );
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - attributes preparing'));
-        foreach($results as $r){
+
+        foreach ($db->fetchAll($select) as $r) {
             $type = $r['backend_type'];
-            if(isset($attrsFromDb[$type])){
+            if (isset($attrsFromDb[$type])) {
                 $attrsFromDb[$type][] = $r['attribute_id'];
-                $attrFDB[$r['attribute_id']] = $r['attribute_code'];
             }
         }
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - attributes preparing done'));
+        self::logMem('Products - attributes preparing done');
+
         $countMax = $this->_storeConfig['maximum_population'];
         $localeCount = 0;
 
@@ -401,241 +397,302 @@ SELECT `main_table`.`attribute_id`, `main_table`.`entity_type_id`, `main_table`.
         $page = 1;
         $header = true;
 
-        while($count >= $limit){
+        $stores = array();
+        foreach ($this->group->getStores() as $store){
 
+            $stores[$store->getId()]['id'] = $store->getId();
+            $stores[$store->getId()]['lang'] = Mage::app()->getStore($store->getId())->getConfig('boxalinoexporter/export_data/language');
 
+        }
+
+        //prepare files
+        $filesMtM = array();
+        $tmp =array_keys($this->_attributesValuesByName);
+        $tmp[] = 'categories';
+        foreach($tmp as $attr){
+
+            $key = $attr;
+
+            if ($attr == 'categories') {
+                $key = 'category';
+            }
+
+            if (!file_exists('/tmp/boxalino')) {
+                mkdir('/tmp/boxalino');
+            }
+
+            $file = 'product_' . $attr . '.csv';
+
+            //save
+            if (!in_array($file, $this->_files)) {
+                $this->_files[] = $file;
+            }
+
+            $fh = fopen($this->_dir . '/' . $file, 'a');
+            fputcsv($fh, array('entity_id', $key . '_id'), $this->_helperExporter->XML_DELIMITER, $this->_helperExporter->XML_ENCLOSURE);
+
+            $filesMtM[$attr] = $fh;
+
+        }
+        $tmp = null;
+
+        while($count >= $limit) {
             if ($countMax > 0 && $this->_count >= $countMax) {
                 break;
             }
 
-            foreach ($this->group->getStores() as $store) {
+            foreach ($stores as $store) {
 
-                $storeId = $store->getId();
+                $storeId = $store['id'];
+                $lang = $store['lang'];
 
-                $lang = Mage::app()->getStore($store->getId())->getConfig('boxalinoexporter/export_data/language');
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - fetch products - before'));
-                $query = "SELECT `e`.* FROM `catalog_product_entity` AS `e` LIMIT $limit OFFSET " . (($page-1) * $limit);
-                $readConnection = $pdo->prepare($query);
-                $readConnection->execute();
-                $results = $readConnection->fetchAll();
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - fetch products - after'));
+                self::logMem('Products - fetch products - before');
+                $select = $db->select()
+                    ->from(
+                        array('e' => 'catalog_product_entity')
+                    )
+                    ->limit($limit, ($page - 1) * $limit);
+
+                $this->_getIndexType() == 'delta' ? $select->where('created_at >= ? OR updated_at >= ?', $this->_getLastIndex()) : '';
+
+                self::logMem('Products - fetch products - after');
 
                 $products = array();
-                $ids = "";
-                foreach($results as $r){
+                $ids = array();
+                $count = 0;
+                foreach ($db->fetchAll($select) as $r) {
                     $products[$r['entity_id']] = $r;
-                    $ids .= $r['entity_id'] . ',';
+                    $ids[] = $r['entity_id'];
                     $products[$r['entity_id']]['website'] = array();
                     $products[$r['entity_id']]['categories'] = array();
+                    $count++;
                 }
 
-                $count = count($results);
+                self::logMem('Products - get attributes - before');
+                $columns = array(
+                    'entity_id',
+                    'attribute_id',
+                );
+                $joinCondition = $db->quoteInto('t_s.attribute_id = t_d.attribute_id AND t_s.entity_id = t_d.entity_id AND t_s.store_id = ?', $storeId);
+                $joinColumns = array('value' => 'IF(t_s.value_id IS NULL, t_d.value, t_s.value)');
 
-                $results = null;
-                $readConnection = null;
+                $select1 = $db->select()
+                    ->joinLeft(array('ea' => 'eav_attribute'), 't_d.attribute_id = ea.attribute_id', 'ea.attribute_code')
+                    ->where('t_d.store_id = ?', 0)
+                    ->where('t_d.entity_type_id = ?', $this->getEntityIdFor('catalog_product'))
+                    ->where('t_d.entity_id IN(?)', $ids);
+                $select2 = clone $select1;
+                $select3 = clone $select1;
+                $select4 = clone $select1;
 
-                $ids = substr($ids, 0, -1);
-                $query = "
-SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`, `t_s`.`value` AS `store_value`, IF(t_s.value_id IS NULL, t_d.value, t_s.value) AS `value` FROM `catalog_product_entity_varchar` AS `t_d`
- LEFT JOIN `catalog_product_entity_varchar` AS `t_s` ON t_s.attribute_id = t_d.attribute_id AND t_s.entity_id = t_d.entity_id AND t_s.store_id = $storeId WHERE (t_d.entity_type_id = 4) AND (t_d.entity_id IN (" . $ids . ")) AND (t_d.attribute_id IN ('" . implode('\',\'', $attrsFromDb['varchar']) . "')) AND (t_d.store_id = 0) UNION ALL SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`, `t_s`.`value` AS `store_value`, IF(t_s.value_id IS NULL, t_d.value, t_s.value) AS `value` FROM `catalog_product_entity_text` AS `t_d`
- LEFT JOIN `catalog_product_entity_text` AS `t_s` ON t_s.attribute_id = t_d.attribute_id AND t_s.entity_id = t_d.entity_id AND t_s.store_id = $storeId WHERE (t_d.entity_type_id = 4) AND (t_d.entity_id IN (" . $ids . ")) AND (t_d.attribute_id IN ('" . implode('\',\'', $attrsFromDb['text']) . "')) AND (t_d.store_id = 0) UNION ALL SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`, `t_s`.`value` AS `store_value`, IF(t_s.value_id IS NULL, t_d.value, t_s.value) AS `value` FROM `catalog_product_entity_decimal` AS `t_d`
- LEFT JOIN `catalog_product_entity_decimal` AS `t_s` ON t_s.attribute_id = t_d.attribute_id AND t_s.entity_id = t_d.entity_id AND t_s.store_id = $storeId WHERE (t_d.entity_type_id = 4) AND (t_d.entity_id IN (" . $ids . ")) AND (t_d.attribute_id IN ('" . implode('\',\'', $attrsFromDb['decimal']) . "')) AND (t_d.store_id = 0) UNION ALL SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`, `t_s`.`value` AS `store_value`, IF(t_s.value_id IS NULL, t_d.value, t_s.value) AS `value` FROM `catalog_product_entity_int` AS `t_d`
- LEFT JOIN `catalog_product_entity_int` AS `t_s` ON t_s.attribute_id = t_d.attribute_id AND t_s.entity_id = t_d.entity_id AND t_s.store_id = $storeId WHERE (t_d.entity_type_id = 4) AND (t_d.entity_id IN (" . $ids . ")) AND (t_d.attribute_id IN ('" . implode('\',\'', $attrsFromDb['int']) . "')) AND (t_d.store_id = 0)
-";
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get attributes - before'));
-                $readConnection = $pdo->prepare($query);
-                $readConnection->execute();
-                $results = $readConnection->fetchAll();
+                $select1->from(
+                    array('t_d' => 'catalog_product_entity_varchar'),
+                    $columns
+                )
+                    ->joinLeft(
+                        array('t_s' => 'catalog_product_entity_varchar'),
+                        $joinCondition,
+                        $joinColumns
+                    )
+                    ->where('t_d.attribute_id IN(?)', $attrsFromDb['varchar']);
+                $select2->from(
+                    array('t_d' => 'catalog_product_entity_text'),
+                    $columns
+                )
+                    ->joinLeft(
+                        array('t_s' => 'catalog_product_entity_text'),
+                        $joinCondition,
+                        $joinColumns
+                    )
+                    ->where('t_d.attribute_id IN(?)', $attrsFromDb['text']);
+                $select3->from(
+                    array('t_d' => 'catalog_product_entity_decimal'),
+                    $columns
+                )
+                    ->joinLeft(
+                        array('t_s' => 'catalog_product_entity_decimal'),
+                        $joinCondition,
+                        $joinColumns
+                    )
+                    ->where('t_d.attribute_id IN(?)', $attrsFromDb['decimal']);
+                $select4->from(
+                    array('t_d' => 'catalog_product_entity_int'),
+                    $columns
+                )
+                    ->joinLeft(
+                        array('t_s' => 'catalog_product_entity_int'),
+                        $joinCondition,
+                        $joinColumns
+                    )
+                    ->where('t_d.attribute_id IN(?)', $attrsFromDb['int']);
 
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get attributes - after'));
-                foreach($results as $r){
+                $select = $db->select()
+                    ->union(
+                        array($select1, $select2, $select3, $select4),
+                        Zend_Db_Select::SQL_UNION_ALL
+                    );
 
-                    $products[$r['entity_id']][$attrFDB[$r['attribute_id']]] = $r['value'];
-
+                $select1 = null;
+                $select2 = null;
+                $select3 = null;
+                $select4 = null;
+                foreach ($db->fetchAll($select) as $r) {
+                    $products[$r['entity_id']][$r['attribute_code']] = $r['value'];
                 }
+                self::logMem('Products - get attributes - after');
 
-                $results = null;
-                $readConnection = null;
-
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get stock  - before'));
-                $query = "SELECT `cataloginventory_stock_status`.`product_id`, `cataloginventory_stock_status`.`stock_status` FROM `cataloginventory_stock_status` WHERE (product_id IN(" . $ids .")) AND (stock_id=1) AND (website_id=1)";
-
-                $readConnection = $pdo->prepare($query);
-                $readConnection->execute();
-                $results = $readConnection->fetchAll();
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get stock  - after'));
-
-
-                foreach($results as $r){
-
+                self::logMem('Products - get stock  - before');
+                $select = $db->select()
+                    ->from(
+                        'cataloginventory_stock_status',
+                        array(
+                            'product_id',
+                            'stock_status',
+                        )
+                    )
+                    ->where('stock_id = ?', 1)
+                    ->where('website_id = ?', 1)
+                    ->where('product_id IN(?)', $ids);
+                foreach ($db->fetchAll($select) as $r) {
                     $products[$r['product_id']]['stock_status'] = $r['stock_status'];
-
                 }
+                self::logMem('Products - get stock  - after');
 
-                $results = null;
-                $readConnection = null;
-
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get products from website - before'));
-                $query = "SELECT `catalog_product_website`.* FROM `catalog_product_website` WHERE (product_id IN (" . $ids ."))";
-
-                $readConnection = $pdo->prepare($query);
-                $readConnection->execute();
-                $results = $readConnection->fetchAll();
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get products from website - after'));
-
-                foreach($results as $r){
-
+                self::logMem('Products - get products from website - before');
+                $select = $db->select()
+                    ->from(
+                        'catalog_product_website',
+                        array(
+                            'product_id',
+                            'website_id',
+                        )
+                    )
+                    ->where('product_id IN(?)', $ids);
+                foreach ($db->fetchAll($select) as $r) {
                     $products[$r['product_id']]['website'][] = $r['website_id'];
-
                 }
+                self::logMem('Products - get products from website - after');
 
-                $results = null;
-                $readConnection = null;
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get products connections - before'));
-
-                $query = "select * from catalog_product_super_link WHERE (product_id IN (" . $ids ."))";
-                $readConnection = $pdo->prepare($query);
-                $readConnection->execute();
-                $results = $readConnection->fetchAll();
-
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get products connections - after'));
-                foreach($results as $r){
-
+                self::logMem('Products - get products connections - before');
+                $select = $db->select()
+                    ->from(
+                        'catalog_product_super_link',
+                        array(
+                            'product_id',
+                            'parent_id',
+                        )
+                    )
+                    ->where('product_id IN(?)', $ids);
+                foreach ($db->fetchAll($select) as $r) {
                     $products[$r['product_id']]['parent_id'] = $r['parent_id'];
-
                 }
+                self::logMem('Products - get products connections - after');
 
-                $results = null;
-                $readConnection = null;
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get categories - before'));
-
-                $query = "select * from catalog_category_product WHERE (product_id IN (" . $ids ."))";
-                $readConnection = $pdo->prepare($query);
-                $readConnection->execute();
-                $results = $readConnection->fetchAll();
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - get categories - after'));
-
-                foreach($results as $r){
-
+                self::logMem('Products - get categories - before');
+                $select = $db->select()
+                    ->from(
+                        'catalog_category_product',
+                        array(
+                            'product_id',
+                            'category_id',
+                        )
+                    )
+                    ->where('product_id IN(?)', $ids);
+                $ids = null;
+                foreach ($db->fetchAll($select) as $r) {
                     $products[$r['product_id']]['categories'][] = $r['category_id'];
-
                 }
+                $select = null;
+                self::logMem('Products - get categories - after');
 
-                foreach ($products as $pr) {
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - start transform'));
+                foreach ($products as $product) {
+                    self::logMem('Products - start transform');
 
-                    $product = new stdClass();
-                    foreach ($pr as $key => $value)
-                    {
-                        $product->$key = $value;
-                    }
-
-                    $pr = null;
-
-                    if (count($product->website) == 0) {
-
-                        $products = null;
+                    if (count($product['website']) == 0) {
+                        $product = null;
                         continue;
                     }
 
-                    $id = $product->entity_id;
+                    $id = $product['entity_id'];
 
                     $productParam = array();
                     $haveParent = false;
 
-                    if ($this->getParentId($id) != null && $product->type_id == 'simple') {
-                        $id = $this->getParentId($id);
+                    if (array_key_exists('parent_id', $product)) {
+                        $id = $product['parent_id'];
                         $haveParent = true;
-                    } else if ($product->visibility == 1 && $this->getParentId($id) == null) {
+                    } else if ($product['visibility'] == 1 && !array_key_exists('parent_id', $product)) {
                         $product = null;
                         continue;
                     }
 
                     foreach ($attrs as $attr) {
-                        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - start attributes transform'));
+                        self::logMem('Products - start attributes transform');
 
                         if (isset($this->_attributesValuesByName[$attr])) {
 
-                            $val = $this->escapeString($this->getFromClass($product, $attr));
-
-                            $attr = $this->_helperSearch->sanitizeFieldName($attr);
-
+                            $val = array_key_exists($attr, $product) ? $this->_helperSearch->escapeString($product[$attr]) : '';
                             if ($val == null) {
                                 continue;
                             }
 
+                            $attr = $this->_helperSearch->sanitizeFieldName($attr);
+
                             $this->_attrProdCount[$attr] = true;
 
-                            if (isset($this->_tmp[$attr][$id]) && in_array($val, $this->_tmp[$attr][$id])) {
-                                continue;
+                            // if visibility is set everywhere (have value "4"),
+                            // then we split it for value "2" and "3" (search and catalog separately)
+                            if ($attr == 'visibility' && $val == '4') {
+                                fputcsv($filesMtM[$attr], array($id, '2'), $this->_helperExporter->XML_DELIMITER, $this->_helperExporter->XML_ENCLOSURE);
+                                fputcsv($filesMtM[$attr], array($id, '3'), $this->_helperExporter->XML_DELIMITER, $this->_helperExporter->XML_ENCLOSURE);
+
+                            } else {
+                                fputcsv($filesMtM[$attr], array($id, $val), $this->_helperExporter->XML_DELIMITER, $this->_helperExporter->XML_ENCLOSURE);
                             }
 
-                            if (isset($this->_transformedProducts['productsMtM'][$attr])) {
-                                // If visibility is set everywhere (have value "4"), then we split it for value "2" and "3" (search and catalog separately)
-                                if ($attr == 'visibility' && $val == '4') {
-                                    $this->_transformedProducts['productsMtM'][$attr][] = array(/*'id' => count($this->_transformedProducts['productsMtM'][$attr])+1,*/
-                                        0 => $id, 1 => '2');
-                                    $this->_transformedProducts['productsMtM'][$attr][] = array(/*'id' => count($this->_transformedProducts['productsMtM'][$attr])+1,*/
-                                        0 => $id, 1 => '3');
-                                    $this->_tmp[$attr][$id][] = $val;
-                                } else {
-                                    $this->_transformedProducts['productsMtM'][$attr][] = array(/*'id' => count($this->_transformedProducts['productsMtM'][$attr])+1,*/
-                                        0 => $id, 1 => $val);
-                                    $this->_tmp[$attr][$id][] = $val;
-                                }
-                            } else {
-                                $this->_transformedProducts['productsMtM'][$attr] = array();
-                                // If visibility is set everywhere (have value "4"), then we split it for value "2" and "3" (search and catalog separately)
-                                if ($attr == 'visibility' && $val == '4') {
-                                    $this->_transformedProducts['productsMtM'][$attr][] = array(/*'id' => 1,*/
-                                        0 => $id, 1 => '2');
-                                    $this->_transformedProducts['productsMtM'][$attr][] = array(/*'id' => 2,*/
-                                        0 => $id, 1 => '3');
-                                    $this->_tmp[$attr][$id] = array($val);
-                                } else {
-                                    $this->_transformedProducts['productsMtM'][$attr][] = array(/*'id' => 1,*/
-                                        0 => $id, 1 => $val);
-                                    $this->_tmp[$attr][$id] = array($val);
-                                }
-                            }
+
+                            $val = null;
 
                             continue;
                         }
 
-
+                        $val = array_key_exists($attr, $product) ? $this->_helperSearch->escapeString($product[$attr]) : '';
                         switch ($attr) {
+                            case 'category_ids':
+                                break;
                             case 'description':
                             case 'short_description':
                             case 'name':
-                                $productParam[$attr . '_' . $lang] = $this->escapeString($this->getFromClass($product, $attr));
-                                break;
-                            case 'category_ids':
+                                $productParam[$attr . '_' . $lang] = $val;
                                 break;
                             default:
-                                $productParam[$attr] = $this->escapeString($this->getFromClass($product, $attr));
+                                $productParam[$attr] = $val;
                                 break;
                         }
-                        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - end attributes transform'));
+                        self::logMem('Products - end attributes transform');
 
                     }
 
                     if ($haveParent) {
+                        $product = null;
                         continue;
                     }
 
                     if (!isset($this->_transformedProducts['products'][$id])) {
                         if ($countMax > 0 && $this->_count >= $countMax) {
+                            $product = null;
+                            $products = null;
                             break;
                         }
                         $productParam['entity_id'] = $id;
                         $this->_transformedProducts['products'][$id] = $productParam;
 
                         //Add categories
-                        if(isset($product->categories) && count($product->categories) > 0){
-                            foreach ($product->categories as $cat) {
+                        if (isset($product['categories']) && count($product['categories']) > 0) {
+                            foreach ($product['categories'] as $cat) {
 
                                 while ($cat != null) {
-                                    $this->_transformedProducts['productsMtM']['categories'][] = array(0 => $id, 1 => $cat);
+                                    fputcsv($filesMtM['categories'], array($id, $cat), $this->_helperExporter->XML_DELIMITER, $this->_helperExporter->XML_ENCLOSURE);
                                     if (isset($this->_transformedCategories[$cat]['parent_id'])) {
                                         $cat = $this->_transformedCategories[$cat]['parent_id'];
                                     } else {
@@ -649,55 +706,32 @@ SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`
 
                     } elseif (isset($this->_transformedProducts['products'][$id])) {
                         $this->_transformedProducts['products'][$id] = array_merge($this->_transformedProducts['products'][$id], $productParam);
-
                     }
+
                     $productParam = null;
                     $product = null;
 
                     ksort($this->_transformedProducts['products'][$id]);
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - end transform'));
+                    self::logMem('Products - end transform');
 
                 }
             }
 
-            if(isset($this->_transformedProducts['products']) && count($this->_transformedProducts['products']) > 0){
+            if (isset($this->_transformedProducts['products']) && count($this->_transformedProducts['products']) > 0) {
 
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - validate names start'));
+                self::logMem('Products - validate names start');
 
                 $data = $this->_transformedProducts['products'];
 
-                foreach ($this->_transformedProducts['productsMtM'] as $key => $val) {
-
-                    $dataMtM = $val;
-
-                    if($header){
-
-                        if($key == 'categories'){
-                            $dataMtM = array_merge(array(array("entity_id", "category_id")), $dataMtM);
-                        } else{
-                            $dataMtM = array_merge(array(array("entity_id", $key . "_id")), $dataMtM);
-                        }
-                        /** @TODO UNUSED! */
-                        $csvFiles[] = "product_" . $this->_helperSearch->sanitizeFieldName($key);
-                    }
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - validate names end'));
-
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - save to file with corrected name'));
-                    $this->savePartToCsv( "product_" . $this->_helperSearch->sanitizeFieldName($key) . '.csv' , $dataMtM);
-                    $this->_transformedProducts['productsMtM'][$key] = null;
-                }
-
-                if($header && count($data) > 0){
+                if ($header && count($data) > 0) {
                     $data = array_merge(array(array_keys(end($data))), $data);
                     $header = false;
                 }
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Products - save to file'));
+                self::logMem('Products - save to file');
                 $this->savePartToCsv('products.csv', $data);
-
                 $data = null;
-
+                $this->_transformedProducts['products'] = null;
                 $this->_transformedProducts['products'] = array();
-                $this->_transformedProducts['productsMtM'] = array();
 
             }
 
@@ -707,234 +741,420 @@ SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`
 
         }
 
+        $attrFDB = null;
+        $attrsFromDb = null;
+        $attrs = null;
         $this->_transformedProducts = null;
-        $this->_parentId = null;
-        $this->_simpleIds = null;
+        $db = null;
+
+        //close file
+        foreach($filesMtM as $f){
+            fclose($f);
+        }
 
 
-        return $this->_transformedProducts;
     }
-
-    abstract protected function _getStoreProducts();
 
     /**
      * @description Preparing customers to export
-     * @return array Customers
+     * @return void
      *
      */
     protected function _exportCustomers()
     {
 
-        if ($this->_storeConfig['export_customers']) {
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - Countries are not loaded'));
-            $collection = Mage::getModel('directory/country')->getCollection();
-            Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - Countries are loaded'));
+        if (!$this->_storeConfig['export_customers']) {
+            return;
+        }
 
-            if ($this->_countries == null) {
-                foreach ($collection as $country) {
-                    $this->_countries[$country->getId()] = $country->getName();
-                }
+        self::logMem('Customers - Countries are not loaded');
+        $countryCollection = Mage::getModel('directory/country')->getCollection();
+        self::logMem('Customers - Countries are loaded');
+
+        if ($this->_countries == null) {
+            foreach ($countryCollection as $country) {
+                $this->_countries[$country->getId()] = $country->getName();
+            }
+        }
+        $countryCollection = null;
+
+        $limit = $this->_storeConfig['export_chunk'];
+        $count = $limit;
+        $page = 1;
+        $header = true;
+
+        $attrsFromDb = array(
+            'int' => array(),
+            'varchar' => array(),
+            'datetime' => array(),
+        );
+
+        $db = $this->_getReadAdapter();
+        $select = $db->select()
+            ->from(
+                array('main_table' => 'eav_attribute'),
+                array(
+                    'aid' => 'attribute_id',
+                    'attribute_code',
+                    'backend_type',
+                )
+            )
+            ->joinInner(
+                array('additional_table' => 'customer_eav_attribute'),
+                'additional_table.attribute_id = main_table.attribute_id'
+            )
+            ->joinLeft( // @todo is this left join still necessary?
+                array('scope_table' => 'customer_eav_attribute_website'),
+                'scope_table.attribute_id = main_table.attribute_id AND ' .
+                'scope_table.website_id = ' . $this->group->getWebsiteId()
+            )
+            ->where('main_table.entity_type_id = ?', $this->getEntityIdFor('customer'))
+            ->where('attribute_code IN ("dob", "gender")');
+
+        foreach ($db->fetchAll($select) as $attr) {
+            if (isset($attrsFromDb[$attr['backend_type']])) {
+                $attrsFromDb[$attr['backend_type']][] = $attr['aid'];
+            }
+        }
+
+        do {
+            self::logMem("Customers - load page $page");
+            $customers_to_save = array();
+
+            $customers = array();
+
+            $select = $db->select()
+                ->from(
+                    'customer_entity',
+                    array('entity_id', 'created_at', 'updated_at')
+                )
+                ->where('entity_type_id = ?', '1')->limit($limit, ($page - 1) * $limit);
+
+            $this->_getIndexType() == 'delta' ? $select->where('created_at >= ? OR updated_at >= ?', $this->_getLastIndex()) : '';
+
+            foreach ($db->fetchAll($select) as $r) {
+                $customers[$r['entity_id']] = array('id' => $r['entity_id']);
             }
 
-            $limit = $this->_storeConfig['export_chunk'];
-            $count = $limit;
-            $page = 1;
-            $header = true;
+            $ids = array_keys($customers);
+            $columns = array(
+                'entity_id',
+                'attribute_id',
+                'value',
+            );
 
-            do{
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - load page '.$page));
-                $customers_to_save = array();
-                $customers = Mage::getModel('customer/customer')
-                    ->getCollection()
-                    ->setPageSize($limit)
-                    ->setCurPage($page)
-                    ->addAttributeToSelect('*');
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - loaded page '.$page));
+            $select = $db->select()
+                ->joinLeft(array('ea' => 'eav_attribute'), 'ce.attribute_id = ea.attribute_id', 'ea.attribute_code')
+                ->where('ce.entity_type_id = ?', 1)
+                ->where('ce.entity_id IN(?)', $ids);
 
-                foreach ($customers as $customer) {
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - Load billing address '));
-                    $billing = $customer->getPrimaryBillingAddress();
-                    if(!empty($billing)) {
-                        $countryCode = $billing->getCountry();
+            $select1 = null;
+            $select2 = null;
+            $select3 = null;
+
+            $selects = array();
+
+            if(count($attrsFromDb['varchar']) > 0){
+                $select1 = clone $select;
+                $select1->from(array('ce' => 'customer_entity_varchar'), $columns)
+                    ->where('ce.attribute_id IN(?)', $attrsFromDb['varchar']);
+                $selects[] = $select1;
+            }
+
+            if(count($attrsFromDb['int']) > 0){
+                $select2 = clone $select;
+                $select2->from(array('ce' => 'customer_entity_int'), $columns)
+                    ->where('ce.attribute_id IN(?)', $attrsFromDb['int']);
+                $selects[] = $select2;
+            }
+
+            if(count($attrsFromDb['datetime']) > 0){
+                $select3 = clone $select;
+                $select3->from(array('ce' => 'customer_entity_datetime'), $columns)
+                    ->where('ce.attribute_id IN(?)', $attrsFromDb['datetime']);
+                $selects[] = $select3;
+            }
+
+            $select = $db->select()
+                ->union(
+                    $selects,
+                    Zend_Db_Select::SQL_UNION_ALL
+                );
+
+            foreach ($db->fetchAll($select) as $r) {
+                $customers[$r['entity_id']][$r['attribute_code']] = $r['value'];
+            }
+
+            $select = null;
+            $select1 = null;
+            $select2 = null;
+            $select3 = null;
+            $selects = null;
+
+            $select = $db->select()
+                ->from(
+                    'eav_attribute',
+                    array(
+                        'attribute_id',
+                        'attribute_code',
+                    )
+                )
+                ->where('entity_type_id = ?', $this->getEntityIdFor('customer_address'))
+                ->where('attribute_code IN ("country_id","postcode")');
+
+            $addressAttr = array();
+            foreach ($db->fetchAll($select) as $r) {
+                $addressAttr[$r['attribute_id']] = $r['attribute_code'];
+            }
+            $addressIds = array_keys($addressAttr);
+
+            self::logMem('Customers - loaded page ' . $page);
+
+            foreach ($customers as $customer) {
+                self::logMem('Customers - Load billing address ');
+                $id = $customer['id'];
+
+                $select = $db->select()
+                    ->from(
+                        'customer_address_entity',
+                        array('entity_id')
+                    )
+                    ->where('entity_type_id = ?', 2)
+                    ->where('parent_id = ?', $id);
+
+                $select = $db->select()
+                    ->from(
+                        'customer_address_entity_varchar',
+                        array('attribute_id', 'value')
+                    )
+                    ->where('entity_type_id = ?', $this->getEntityIdFor('customer_address'))
+                    ->where('entity_id = ?', $select)
+                    ->where('attribute_id IN(?)', $addressIds);
+
+                $billingResult = array();
+                foreach ($db->fetchAll($select) as $br) {
+                    if (in_array($br['attribute_id'], $addressIds)) {
+                        $billingResult[$addressAttr[$br['attribute_id']]] = $br['value'];
                     }
-
-                    switch ($customer->getGender()) {
-                        case 1:
-                            $gender = 'male';
-                            break;
-                        case 2:
-                            $gender = 'female';
-                            break;
-                        default:
-                            $gender = null;
-                            break;
-                    }
-
-                    $customers_to_save[] = array(
-                        'customer_id' => $customer->getId(),
-                        'gender' => $gender,
-                        'dob' => $customer->getDob(),
-                        'country' => !empty($countryCode) ? $this->_helperExporter->getCountry($countryCode)->getName() : '',
-                        'zip' => !empty($billing) ? $billing->getPostcode() : ''
-                    );
-
                 }
 
-                $data = $customers_to_save;
-
-                if($header){
-                    $data = array_merge(array(array_keys(end($customers_to_save))), $customers_to_save);
-                    $header = false;
+                $countryCode = null;
+                if (isset($billingResult['country_id'])) {
+                    $countryCode = $billingResult['country_id'];
                 }
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - save to file'));
-                $this->savePartToCsv('customers.csv', $data);
 
-                $count = count($customers_to_save);
-                $page++;
+                if (array_key_exists('gender', $customer)) {
+                    if ($customer['gender'] % 2 == 0) {
+                        $gender = 'female';
+                    } else {
+                        $gender = 'male';
+                    }
+                } else {
+                    $gender = '';
+                }
 
-            } while($count >= $limit);
-            $customers = null;
-        }
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Customers - end of exporting '));
-        return null;
+                $customers_to_save[] = array(
+                    'customer_id' => $id,
+                    'gender' => $gender,
+                    'dob' => array_key_exists('dob', $customer) ? $customer['dob'] : '',
+                    'country' => !empty($countryCode) ? $this->_helperExporter->getCountry($countryCode)->getName() : '',
+                    'zip' => array_key_exists('postcode', $billingResult) ? $billingResult['postcode'] : '',
+                );
+
+            }
+
+            $data = $customers_to_save;
+
+            if (count($customers) == 0 && $header) {
+                return null;
+            }
+
+            if ($header) {
+                $data = array_merge(array(array_keys(end($customers_to_save))), $customers_to_save);
+                $header = false;
+            }
+            self::logMem('Customers - save to file');
+            $this->savePartToCsv('customers.csv', $data);
+            $data = null;
+
+            $count = count($customers_to_save);
+            $page++;
+
+        } while ($count >= $limit);
+        $customers = null;
+
+        self::logMem('Customers - end of exporting');
     }
-
-    abstract protected function _getCustomers();
 
     /**
      * @description Preparing transactions to export
-     * @return array Transaction
+     * @return void
      */
     protected function _exportTransactions()
     {
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - start of export'));
-        if ($this->_storeConfig['export_transactions']) {
+        if (!$this->_storeConfig['export_transactions']) {
+            return;
+        }
 
-            $limit = $this->_storeConfig['export_chunk'];
-            $count = $limit;
-            $page = 1;
-            $header = true;
+        self::logMem('Transactions - start of export');
+        $db = $this->_getReadAdapter();
 
-            while($count >= $limit){
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - load page '.$page));
+        $limit = $this->_storeConfig['export_chunk'];
+        $count = $limit;
+        $page = 1;
+        $header = true;
 
-                $transactions_to_save = array();
-                $transactions = Mage::getModel('sales/order')
-//                    ->setStoreId($this->_storeId)
-                    ->getCollection()
-                    ->setPageSize($limit)
-                    ->setCurPage($page)
-                    ->addAttributeToSelect('*');
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - loaded page '.$page));
+        while ($count >= $limit) {
+            self::logMem('Transactions - load page ' . $page);
+            $transactions_to_save = array();
+            $configurable = array();
 
-                foreach ($transactions as $transaction) {
+            $select = $db
+                ->select()
+                ->from(
+                    array('order' => 'sales_flat_order'),
+                    array(
+                        'entity_id',
+                        'status',
+                        'updated_at',
+                        'created_at',
+                        'customer_id',
+                        'base_subtotal',
+                        'shipping_amount',
+                    )
+                )
+                ->joinLeft(
+                    array('item' => 'sales_flat_order_item'),
+                    'order.entity_id = item.order_id',
+                    array(
+                        'product_id',
+                        'product_options',
+                        'price',
+                        'original_price',
+                        'product_type',
+                        'qty_ordered',
+                    )
+                )
+                ->where('order.status <> ?', 'canceled')
+                ->order(array('order.entity_id', 'item.product_type'))
+                ->limit($limit, ($page - 1) * $limit);
 
-                    if ($transaction->getStatus() == 'canceled') {
-                        continue;
+            $this->_getIndexType() == 'delta' ? $select->where('order.created_at >= ? OR order.updated_at >= ?', $this->_getLastIndex()) : '';
+
+            $transactions = $db->fetchAll($select);
+            self::logMem("Transactions - loaded page $page");
+
+            foreach ($transactions as $transaction) {
+                //is configurable
+                if ($transaction['product_type'] == 'configurable') {
+                    $configurable[$transaction['product_id']] = $transaction;
+                    continue;
+                }
+
+                $productOptions = unserialize($transaction['product_options']);
+
+                //is configurable - simple product
+                if (intval($transaction['price']) == 0 && $transaction['product_type'] == 'simple') {
+                    if (isset($configurable[$productOptions['info_buyRequest']['product']])) {
+                        $pid = $configurable[$productOptions['info_buyRequest']['product']];
+
+                        $transaction['original_price'] = $pid['original_price'];
+                        $transaction['price'] = $pid['price'];
+                    } else {
+                        $pid = Mage::getModel('catalog/product')->load($productOptions['info_buyRequest']['product']);
+
+                        $transaction['original_price'] = ($pid->getPrice());
+                        $transaction['price'] = ($pid->getPrice());
+
+                        $tmp = array();
+                        $tmp['original_price'] = $transaction['original_price'];
+                        $tmp['price'] = $transaction['price'];
+
+                        $configurable[$productOptions['info_buyRequest']['product']] = $tmp;
+
+                        $pid = null;
+                        $tmp = null;
                     }
+                }
 
-                    $configurable = array();
-
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - get all items - before'));
-                    $products = ($transaction->getAllItems());
-                    Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - get all items - after'));
-
-                    foreach ($products as $product) {
-
-                        //is configurable
-                        if ($product->getParentItemId() == null && $product->getProductType() != 'simple') {
-                            $configurable[$product->getId()] = $product;
+                $status = 0; // 0 - pending, 1 - confirmed, 2 - shipping
+                if ($transaction['updated_at'] != $transaction['created_at']) {
+                    switch ($transaction['status']) {
+                        case 'canceled':
                             continue;
-                        }
-
-                        //is configurable - simple product
-                        if (intval($product->getPrice()) == 0) {
-                            if(isset($configurable[$product->getParentItemId()])){
-                                $pid = $configurable[$product->getParentItemId()];
-                            } else{
-                                $pid = Mage::getModel('catalog/product')->load($product->getParentItemId());
-                            }
-                            $product->setOriginalPrice($pid->getOriginalPrice());
-                            $product->setPrice($pid->getPrice());
-                        }
-
-                        $status = 0; // 0 - pending, 1 - confirmed, 2 - shipping
-
-                        if ($transaction->getUpdatedAt() != $transaction->getCreatedAt()) {
-
-                            switch ($transaction->getStatus()) {
-                                case 'canceled':
-                                    continue;
-                                    continue;
-                                    break;
-                                case 'processing':
-                                    $status = 1;
-                                    break;
-                                case 'complete':
-                                    $status = 2;
-                                    break;
-                            }
-                        }
-                        $transactions_to_save[] = array(
-                            'order_id' => $transaction->getId(),
-                            'entity_id' => $product->getProductId(),
-                            'customer_id' => $transaction->getCustomerId(),
-                            'price' => $product->getOriginalPrice(),
-                            'discounted_price' => $product->getPrice(),
-                            'quantity' => $product->getQtyOrdered(),
-                            'total_order_value' => ($transaction->getBaseSubtotal() + $transaction->getShippingAmount()),
-                            'shipping_costs' => $transaction->getShippingAmount(),
-                            'order_date' => $transaction->getCreatedAt(),
-                            'confirmation_date' => $status == 1 ? $transaction->getUpdatedAt() : null,
-                            'shipping_date' => $status == 2 ? $transaction->getUpdatedAt() : null,
-                            'status' => $transaction->getStatus()
-                        );
+                            break;
+                        case 'processing':
+                            $status = 1;
+                            break;
+                        case 'complete':
+                            $status = 2;
+                            break;
                     }
-
-                    $configurable = null;
-                    $products = null;
                 }
 
-                $data = $transactions_to_save;
-                $count = count($transactions);
-
-                if($header){
-                    $data = array_merge(array(array_keys(end($transactions_to_save))), $transactions_to_save);
-                    $header = false;
-                }
-
-                Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - save to file'));
-                $this->savePartToCsv('transactions.csv', $data);
-
-                $page++;
-
-                $transactions = null;
-
+                $transactions_to_save[] = array(
+                    'order_id'          => $transaction['entity_id'],
+                    'entity_id'         => $transaction['product_id'],
+                    'customer_id'       => array_key_exists('customer_id', $transaction) ? $transaction['customer_id'] : '',
+                    'price'             => $transaction['original_price'],
+                    'discounted_price'  => $transaction['price'],
+                    'quantity'          => $transaction['qty_ordered'],
+                    'total_order_value' => ($transaction['base_subtotal'] + $transaction['shipping_amount']),
+                    'shipping_costs'    => $transaction['shipping_amount'],
+                    'order_date'        => $transaction['created_at'],
+                    'confirmation_date' => $status == 1 ? $transaction['updated_at'] : null,
+                    'shipping_date'     => $status == 2 ? $transaction['updated_at'] : null,
+                    'status'            => $transaction['status'],
+                );
             }
+
+            $data = $transactions_to_save;
+            $count = count($transactions);
+
+            $configurable = null;
+            $transactions = null;
+
+            if ($count == 0 && $header) {
+                return;
+            }
+
+            if ($header) {
+                $data = array_merge(array(array_keys(end($transactions_to_save))), $transactions_to_save);
+                $header = false;
+            }
+
+            self::logMem('Transactions - save to file');
+            $this->savePartToCsv('transactions.csv', $data);
+            $data = null;
+
+            $page++;
 
         }
 
-        Boxalino_CemSearch_Model_Logger::saveMemoryTracking('info', 'Indexer', array('memory_usage' => memory_get_usage(true), 'method' => __METHOD__, 'description' => 'Transactions - end of export'));
-        return null;
+        self::logMem('Transactions - end of export');
     }
 
-    abstract protected function _getTransactions();
-
-    abstract protected function _getIndexType();
+    /**
+     * @return string Index type
+     */
+    protected function _getIndexType()
+    {
+        return static::INDEX_TYPE; // access via late static binding (PHP 5.3)
+    }
 
     /**
      * @description Preparing files to send
      */
-    protected function prepareFiles($website, &$categories = null,  &$tags = null )
+    protected function prepareFiles($website, &$categories = null, &$tags = null)
     {
 
         //Prepare attributes
         $csvFiles = array();
-        if (!file_exists("/tmp/boxalino")) {
-            mkdir("/tmp/boxalino");
+        if (!file_exists('/tmp/boxalino')) {
+            mkdir('/tmp/boxalino');
         }
 
-        //create csv
+        //create csvs
         //save attributes
         foreach ($this->_attributesValuesByName as $attrName => $attrValues) {
             $csvFiles[] = $this->createCsv($this->_helperSearch->sanitizeFieldName($attrName), $attrValues);
@@ -947,7 +1167,7 @@ SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`
         }
 
         //save tags
-        if ($tags != null) {
+        if ($tags != null && $this->_getProductTags() != null) {
             $csvFiles[] = $this->createCsv('tag', $tags);
 
             $loop = 1;
@@ -956,41 +1176,33 @@ SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`
             }
 
             $csvFiles[] = $this->createCsv('product_tag', $csvdata);
-
         }
-
-//        csv done
+        //csvs done
 
         //Create name for file
         $exportFile = '/tmp/boxalino/' . $this->_storeConfig['di_username'];
-
         $csvFiles = array_filter($csvFiles);
 
         //Create xml
-        $this->createXML($exportFile . '.xml');
+        $this->createXML($exportFile . '.xml', ($tags != null && $this->_getProductTags() != null) ? true : false);
 
         //Create zip
-
         $this->createZip($exportFile . '.zip', array_filter($this->_files), $exportFile . '.xml');
 
         return $exportFile;
-
-        //
-
     }
 
     /**
      * @param $name
      * @param $data
-     * @param $csv
      * @return string
      */
     protected function createCsv($name, &$data)
     {
         $file = $name . '.csv';
 
-        if(!is_array($data) || count($data) == 0){
-            Mage::getModel('adminhtml/session')->addWarning("Data for $file have wrong format or is empty. " . "[" . gettype($data) . "]");
+        if (!is_array($data) || count($data) == 0) {
+            Mage::getModel('adminhtml/session')->addWarning("Data for $file is not an array or is empty. [" . gettype($data) . ']');
         }
 
         $csvdata = array_merge(array(array_keys(end($data))), $data);
@@ -1005,8 +1217,6 @@ SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`
         $this->_files[] = $file;
 
         return $file;
-
-
     }
 
     /**
@@ -1026,7 +1236,7 @@ SELECT `t_d`.`entity_id`, `t_d`.`attribute_id`, `t_d`.`value` AS `default_value`
         return $this->_allProductTags;
     }
 
-    protected function createXML($name)
+    protected function createXML($name, $withTag)
     {
 
         $xml = new SimpleXMLElement('<root/>');
@@ -1143,9 +1353,9 @@ XML;
         $products->addAttribute('type', 'products');
 
         $sources = $products->addChild('sources');
+        //#########################################################################
 
         //product source
-        #########################################################################
         $source = $sources->addChild('source');
         $source->addAttribute('id', 'item_vals');
         $source->addAttribute('type', 'item_data_file');
@@ -1154,19 +1364,15 @@ XML;
         $source->addChild('itemIdColumn')->addAttribute('value', 'entity_id');
 
         $this->sxml_append_options($source);
-        #########################################################################
+        //#########################################################################
 
         $attrs = array_keys($this->_attributesValuesByName);
-        if ($this->_storeConfig['export_tags']) {
+        if ($this->_storeConfig['export_tags'] && $withTag) {
             $attrs[] = 'tag';
 
         }
 
         foreach ($attrs as $attr) {
-
-//            if(!array_key_exists($attr . '.csv', $this->_files)){
-//                continue;
-//            }
 
             $attr = $this->_helperSearch->sanitizeFieldName($attr);
 
@@ -1200,7 +1406,7 @@ XML;
 
         }
 
-       ########################################################################
+        //########################################################################
         if ($this->_storeConfig['export_categories']) {
             //categories
             $sourceCategory = $sources->addChild('source');
@@ -1232,20 +1438,16 @@ XML;
 
             $this->sxml_append_options($source);
         }
-        #########################################################################
+        //#########################################################################
 
         //property
         $properties = $products->addChild('properties');
-        $props = $this->prepareProperties();
+        $props = $this->prepareProperties($withTag);
 
         foreach ($props as $prop) {
             if ($prop['id'] == 'entity_id') {
 
             }
-
-//            if($prop['type'] == 'reference' && !array_key_exists($prop['name'], $this->_files)){
-//                continue;
-//            }
 
             $property = $properties->addChild('property');
             $property->addAttribute('id', $this->_helperSearch->sanitizeFieldName($prop['id']));
@@ -1272,9 +1474,9 @@ XML;
             }
 
         }
-        ##################################
+        //##################################
 
-        ##################################
+        //##################################
 
         if ($this->_storeConfig['export_customers']) {
             $customer = simplexml_load_string($customerString);
@@ -1292,16 +1494,25 @@ XML;
         $dom->loadXML($xml->asXML());
         $saveXML = $dom->saveXML();
         file_put_contents($name, $saveXML);
-//        $dom->save($name);
-
-
     }
 
     /**
-     * desciption: add default xmlElements
+     * @description add xmlElement to other xmlElement
+     * @param SimpleXMLElement $to
+     * @param SimpleXMLElement $from
+     */
+    protected function sxml_append(SimpleXMLElement $to, SimpleXMLElement $from)
+    {
+        $toDom = dom_import_simplexml($to);
+        $fromDom = dom_import_simplexml($from);
+        $toDom->appendChild($toDom->ownerDocument->importNode($fromDom, true));
+    }
+
+    /**
+     * @desciption add default xmlElements
      * @param SimpleXMLElement $xml
      */
-    function sxml_append_options(SimpleXMLElement &$xml)
+    protected function sxml_append_options(SimpleXMLElement &$xml)
     {
         $xml->addChild('format')->addAttribute('value', $this->_helperExporter->XML_FORMAT);
         $xml->addChild('encoding')->addAttribute('value', $this->_helperExporter->XML_ENCODE);
@@ -1314,18 +1525,15 @@ XML;
     /**
      * @return array
      */
-    function prepareProperties()
+    protected function prepareProperties($withTag)
     {
 
         $properties = array();
 
         $attrs = $this->_listOfAttributes;
-//        $attrs[] = 'parent_id';
 
         foreach ($attrs as $attr) {
-
             $ptype = 'string';
-
             // set property type
             switch ($attr) {
                 case 'name':
@@ -1352,17 +1560,16 @@ XML;
                 case 'length':
                     $ptype = 'number';
                     break;
-
             }
 
             if (isset($this->_attributesValuesByName[$attr])) {
                 $properties[] = array(
-                    'id' => $attr,
-                    'name' => $attr,
-                    'ptype' => 'text',
-                    'type' => 'reference',
-                    'field' => $attr . '_id',
-                    'has_lang' => false,
+                    'id'        => $attr,
+                    'name'      => $attr,
+                    'ptype'     => 'text',
+                    'type'      => 'reference',
+                    'field'     => $attr . '_id',
+                    'has_lang'  => false,
                     'reference' => $attr
                 );
             } elseif ($attr == 'category_ids') {
@@ -1382,25 +1589,25 @@ XML;
                         break;
                 }
                 $properties[] = array(
-                    'id' => $attr,
-                    'name' => null,
-                    'ptype' => $ptype,
-                    'type' => $type,
-                    'field' => $field,
-                    'has_lang' => $lang,
+                    'id'        => $attr,
+                    'name'      => null,
+                    'ptype'     => $ptype,
+                    'type'      => $type,
+                    'field'     => $field,
+                    'has_lang'  => $lang,
                     'reference' => $ref
                 );
             }
         }
         //tag
-        if ($this->_storeConfig['export_tags']) {
+        if ($this->_storeConfig['export_tags'] && $withTag) {
             $properties[] = array(
-                'id' => 'tag',
-                'name' => 'tag',
-                'ptype' => 'text',
-                'type' => 'reference',
-                'field' => 'tag_id',
-                'has_lang' => false,
+                'id'        => 'tag',
+                'name'      => 'tag',
+                'ptype'     => 'text',
+                'type'      => 'reference',
+                'field'     => 'tag_id',
+                'has_lang'  => false,
                 'reference' => 'tag'
             );
         }
@@ -1408,32 +1615,26 @@ XML;
         //categories
         if ($this->_storeConfig['export_categories']) {
             $properties[] = array(
-                'id' => 'category',
-                'name' => 'categories', //property id
-                'ptype' => 'hierarchical', //property type
-                'type' => 'reference',  //logic type
-                'field' => 'category_id', //field colummn
-                'has_lang' => false,
+                'id'        => 'category',
+                'name'      => 'categories',   //property id
+                'ptype'     => 'hierarchical', //property type
+                'type'      => 'reference',    //logic type
+                'field'     => 'category_id',  //field colummn
+                'has_lang'  => false,
                 'reference' => 'categories'
             );
         }
-        $properties[] = array('id' => 'product_entity_id', 'name' => null, 'ptype' => 'string', 'type' => 'direct', 'field' => 'entity_id', 'has_lang' => false, 'reference' => null);
+        $properties[] = array(
+            'id'        => 'product_entity_id',
+            'name'      => null,
+            'ptype'     => 'string',
+            'type'      => 'direct',
+            'field'     => 'entity_id',
+            'has_lang'  => false,
+            'reference' => null
+        );
 
         return $properties;
-
-    }
-
-    /**
-     *
-     * description: add xmlElement to other xmlElement
-     * @param SimpleXMLElement $to
-     * @param SimpleXMLElement $from
-     */
-    function sxml_append(SimpleXMLElement $to, SimpleXMLElement $from)
-    {
-        $toDom = dom_import_simplexml($to);
-        $fromDom = dom_import_simplexml($from);
-        $toDom->appendChild($toDom->ownerDocument->importNode($fromDom, true));
     }
 
     /**
@@ -1472,11 +1673,11 @@ XML;
     {
 
         $fields = array(
-            "username" => $this->_storeConfig['di_username'],
-            "password" => $this->_storeConfig['di_password'],
-            "account" => $this->_storeConfig['di_account'],
-            "template" => 'standard_source',
-            "xml" => file_get_contents($file . '.xml')
+            'username' => $this->_storeConfig['di_username'],
+            'password' => $this->_storeConfig['di_password'],
+            'account'  => $this->_storeConfig['di_account'],
+            'template' => 'standard_source',
+            'xml'      => file_get_contents($file . '.xml')
         );
 
         $url = $this->_helperExporter->getXMLSyncUrl($this->_storeConfig['account_dev']);
@@ -1493,7 +1694,7 @@ XML;
         curl_setopt($s, CURLOPT_URL, $url);
         curl_setopt($s, CURLOPT_TIMEOUT, 35000);
         curl_setopt($s, CURLOPT_POST, true);
-        curl_setopt($s, CURLOPT_ENCODING, "");
+        curl_setopt($s, CURLOPT_ENCODING, '');
         curl_setopt($s, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($s, CURLOPT_POSTFIELDS, $fields);
 
@@ -1511,12 +1712,12 @@ XML;
     protected function pushZip($file)
     {
         $fields = array(
-            "username" => $this->_storeConfig['di_username'],
-            "password" => $this->_storeConfig['di_password'],
-            "account" => $this->_storeConfig['di_account'],
-            "dev" => $this->_storeConfig['account_dev'] == 0 ? 'false' : 'true',
-            "delta" => $this->_getIndexType() == 'delta' ? "true" : "false", // I know...
-            "data" => '@' . $file . '.zip;type=application/zip'
+            'username' => $this->_storeConfig['di_username'],
+            'password' => $this->_storeConfig['di_password'],
+            'account'  => $this->_storeConfig['di_account'],
+            'dev'      => $this->_storeConfig['account_dev'] == 0 ? 'false' : 'true',
+            'delta'    => $this->_getIndexType() == 'delta' ? 'true' : 'false', // I know...
+            'data'     => "@$file.zip;type=application/zip",
         );
 
         $url = $this->_helperExporter->getZIPSyncUrl($this->_storeConfig['account_dev']);
@@ -1524,49 +1725,15 @@ XML;
         return $this->pushFile($fields, $url, 'zip');
     }
 
-    /**
-     * @description Closing sync to export
-     */
-    protected function _closeExport()
+    protected function savePartToCsv($file, &$data)
     {
-        $this->delTree($this->_dir);
-    }
 
-    function getmicrotime($mt, $string = true)
-    {
-        list($usec, $sec) = explode(" ", $mt);
-
-        if ($string)
-            return date('Y-m-d H:i:s', (float)$usec + (float)$sec) . '.' . $usec;
-        else
-            return ((float)$usec + (float)$sec);
-    }
-
-    /**
-     * @description Get stock of all products
-     * @return array List of stocks qty for products
-     */
-    protected function _getProductsStockQty()
-    {
-        if (empty($this->_productsStockQty)) {
-            $products = Mage::getModel('cataloginventory/stock_item')->getCollection();
-            foreach ($products as $product) {
-                $this->_productsStockQty[$product->getProductId()] = $product->getQty();
-            }
-            $products = null;
-        }
-
-        return $this->_productsStockQty;
-    }
-
-    protected function savePartToCsv($file, &$data){
-
-        if (!file_exists("/tmp/boxalino")) {
-            mkdir("/tmp/boxalino");
+        if (!file_exists('/tmp/boxalino')) {
+            mkdir('/tmp/boxalino');
         }
 
         //save
-        if(!in_array($file, $this->_files)){
+        if (!in_array($file, $this->_files)) {
             $this->_files[] = $file;
         }
 
@@ -1580,127 +1747,44 @@ XML;
 
     }
 
-    public static function delTree($dir) {
-        if(!file_exists($dir)){
-            return;
-        }
-        $files = array_diff(scandir($dir), array('.','..'));
-        foreach ($files as $file) {
-            if(is_dir("$dir/$file")){
-                delTree("$dir/$file");
-            } else if(file_exists("$dir/$file")){
-                @unlink("$dir/$file");
-            }
-//            (is_dir("$dir/$file")) ? delTree("$dir/$file") : @unlink("$dir/$file");
-        }
-        return rmdir($dir);
-    }
-
-    protected function escapeString($string){
-
-        return htmlspecialchars(trim(preg_replace('/\s+/', ' ', $string)));
-
-    }
-
-    private static function clearMemory(&$obj){
-        $obj = null;
-    }
-
-    private static function getFromClass(&$class, $val){
-
-        if(isset($class->$val)){
-            return $class->$val;
-        } else{
-            return '';
-        }
-
-    }
-
     /**
-     * Load connection arrays if necessary.
+     * Store memory tracking information in log file, if enabled
      */
-    private function loadProductLinks()
+    private static function logMem($message)
     {
-
-        // If arrays already set - nothing to do here.
-        if ($this->_isLoad) {
-            return;
-        }
-
-        // Get database connection
-        $connection = Mage::getSingleton('core/resource')->getConnection('core_read');
-        $tableName = $connection->getTableName('catalog_product_super_link');
-        // Get all data from `catalog_product_super_link`
-        $query = 'select * from ' . $tableName;
-        $this->_simples = array();
-        $this->_configurables = array();
-
-        // Iterate through collection
-        foreach ($connection->fetchAll($query) as $row) {
-            $productId = $row['product_id'];
-            $parentId = $row['parent_id'];
-
-            // Set simpleIds array if not set yet for specified parent.
-            if (!isset($this->_simpleIds[$parentId])) {
-                $this->_simpleIds[$parentId] = array();
-            }
-            // Add simple product to collection of parent.
-            $this->_simpleIds[$parentId][] = $productId;
-            // Add parent to simple product.
-            $this->_parentId[$productId] = $parentId;
-        }
-        unset($connection);
-        $this->_isLoad = true;
+        $callers = debug_backtrace();
+        Boxalino_CemSearch_Model_Logger::saveMemoryTracking(
+            'info',
+            'Indexer',
+            array(
+                'memory_usage' => memory_get_usage(true),
+                'method' => $callers[1]['function'],
+                'description' => $message
+            )
+        );
     }
 
     /**
-     * Return parent id.
+     * Fetch entity id for a entity type.
      *
-     * @param null $productId
-     * @return null|int|array
+     * @param string $entityType
+     * @return null|string
      */
-    public function getParentId($productId = null)
+    public function getEntityIdFor($entityType)
     {
-        // Load connections if necessary.
-        $this->loadProductLinks();
-
-        // If no product is specified - return whole array.
-        if (!isset($productId)) {
-            return $this->_parentId;
+        if ($this->_entityIds == null) {
+            $db = $this->_getReadAdapter();
+            $select = $db->select()
+                ->from(
+                    'eav_entity_type',
+                    array('entity_type_id', 'entity_type_code')
+                );
+            $this->_entityIds = array();
+            foreach ($db->fetchAll($select) as $row) {
+                $this->_entityIds[$row['entity_type_code']] = $row['entity_type_id'];
+            }
         }
-
-        // If we have parent id for specified product - return it.
-        if (isset($this->_parentId[$productId])) {
-            return $this->_parentId[$productId];
-        }
-
-        // No parent - return null.
-        return null;
-    }
-
-    /**
-     * Return simple ids.
-     *
-     * @param null $productId
-     * @return null|int|array
-     */
-    public function getSimpleIds($productId = null)
-    {
-
-        // Load connections if necessary.
-        $this->loadProductLinks();
-
-        // If no product is specified - return whole array.
-        if (!isset($productId)) {
-            return $this->_simpleIds;
-        }
-
-        // If we have simple ids for specified product - return it.
-        if (isset($this->_simpleIds[$productId])) {
-            return $this->_simpleIds[$productId];
-        }
-        // No simple ids - return null.
-        return null;
+        return array_key_exists($entityType, $this->_entityIds) ? $this->_entityIds[$entityType] : null;
     }
 
 }
