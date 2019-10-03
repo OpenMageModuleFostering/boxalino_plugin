@@ -1,16 +1,19 @@
 {
-    "name": "OpenMageModuleFostering/boxalino_plugin",
+    "name": "OpenMageModuleFostering\/boxalino_plugin",
     "type": "magento-module",
     "license": "boxalino-Plugin",
     "homepage": "",
     "description": "This extension connects your magento shop to the boxalino personalisation and testing engine.",
     "authors": [
-    {
-        "name": "Szymon Nosal",
-        "email": "szymon.nosal@boxalino.com"
-    }
-],
+        {
+            "name": "Szymon Nosal",
+            "email": "szymon.nosal@boxalino.com"
+        }
+    ],
     "suggest": {
-        "magento-hackathon/magento-composer-installer": "*"
-    }
+        "magento-hackathon\/magento-composer-installer": "*"
+    },
+    "keywords": [
+        "openmage-module"
+    ]
 }
