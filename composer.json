@@ -1,5 +1,5 @@
 {
-    "name": "OpenMageModuleFostering\/boxalino_plugin",
+    "name": "openmage-module-fostering\/boxalino_plugin",
     "type": "magento-module",
     "license": "boxalino-Plugin",
     "homepage": "",
